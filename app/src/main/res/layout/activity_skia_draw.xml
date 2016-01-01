@@ -4,9 +4,11 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context=".javadraw.JavaDrawActivity">
-    <com.artwork.kalakruti.javadraw.JavaDrawView
-        android:id="@+id/draw_view"
+    android:fitsSystemWindows="true"
+    tools:context="com.artwork.kalakruti.skiadraw.SkiaDrawActivity">
+
+    <com.artwork.kalakruti.skiadraw.SkiaGLSurfaceView
+        android:id="@+id/skia_view"
         android:layout_width="match_parent"
         android:layout_height="match_parent"/>
 </RelativeLayout>

@@ -10,9 +10,19 @@
     android:paddingTop="@dimen/activity_vertical_margin"
     tools:context="com.artwork.kalakruti.KalakrutiActivity">
 
-    <TextView
-        android:id="@+id/drawing_android_java"
+    <Button
+        android:id="@+id/drawing_java"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Android Java Drawing"/>
+        android:layout_alignParentTop="true"
+        android:layout_centerHorizontal="true"
+        android:text="@string/java_drawing"/>
+
+    <Button
+        android:id="@+id/drawing_skia"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/drawing_java"
+        android:layout_centerHorizontal="true"
+        android:text="@string/skia_drawing"/>
 </RelativeLayout>

@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">Kalakruti</string>
+    <string name="title_activity_skia_draw">SkiaDrawActivity</string>
+    <string name="java_drawing">Java Drawing</string>
+    <string name="skia_drawing">Skia Drawing</string>
+    <string name="fps_counter_2">Drawing FPS: %1$.2f Path update Time: %2$.2f</string>
 </resources>
