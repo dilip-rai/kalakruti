@@ -15,13 +15,8 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <activity android:name=".javadraw.JavaDrawActivity">
-        </activity>
-        <activity
-            android:name=".skiadraw.SkiaDrawActivity"
-            android:label="@string/title_activity_skia_draw"
-            android:theme="@style/AppTheme.NoActionBar">
-        </activity>
+        <activity android:name=".javadraw.JavaDrawActivity"/>
+        <activity android:name=".skiadraw.SkiaDrawActivity"/>
     </application>
 
 </manifest>

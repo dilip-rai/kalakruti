@@ -4,14 +4,15 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:keepScreenOn="true"
     tools:context=".javadraw.JavaDrawActivity">
 
-    <TextView
+    <include
         android:id="@+id/fps_couter_view"
+        layout="@layout/fps_counter"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_alignParentTop="true"
-        android:text="@string/fps_counter_2"/>
+        android:layout_alignParentTop="true"/>
 
     <com.artwork.kalakruti.javadraw.JavaDrawView
         android:id="@+id/draw_view"

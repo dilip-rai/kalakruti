@@ -4,11 +4,19 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fitsSystemWindows="true"
+    android:keepScreenOn="true"
     tools:context="com.artwork.kalakruti.skiadraw.SkiaDrawActivity">
 
-    <com.artwork.kalakruti.skiadraw.SkiaGLSurfaceView
-        android:id="@+id/skia_view"
+    <include
+        android:id="@+id/fps_couter_view"
+        layout="@layout/fps_counter"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"/>
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"/>
+
+    <android.opengl.GLSurfaceView
+        android:id="@+id/draw_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_below="@id/fps_couter_view"/>
 </RelativeLayout>

@@ -1,10 +1,18 @@
 package com.artwork.kalakruti.skiadraw;
 
+import android.graphics.Matrix;
+import android.graphics.RectF;
 import android.opengl.GLSurfaceView;
+import android.util.Log;
+import android.view.MotionEvent;
+import android.view.View;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.nio.FloatBuffer;
+import com.artwork.kalakruti.DrawGestureDetector;
+import com.artwork.kalakruti.DrawGestureHandler;
+
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
@@ -12,24 +20,54 @@ import javax.microedition.khronos.opengles.GL10;
 /**
  * GLRenderer for Skia drawing.
  */
-class SkiaGLRenderer implements GLSurfaceView.Renderer {
-    private static final int SIZE_OF_FLOAT = 4;
-    private static final int VERTEX_SIZE = 3;
-    private static final float[] VERTEX_ARRAY = new float[]{
-            0.0f, 0.622008459f, 0.0f, // top
-            -0.5f, -0.311004243f, 0.0f, // bottom left
-            0.5f, -0.311004243f, 0.0f  // bottom right
-    };
+class SkiaGLRenderer implements GLSurfaceView.Renderer, DrawGestureHandler {
+    private static final String TAG = "SkiaGLRenderer";
+    private static final int STROKE_WIDTH = 5;
 
-    private FloatBuffer vertexBuffer;
+    private GLSurfaceView view;
+    private DrawGestureDetector gestureDetector;
+    private SkiaPath path = new SkiaPath();
+    private Matrix viewToModel = new Matrix();
 
-    SkiaGLRenderer() {
-        ByteBuffer bb = ByteBuffer.allocateDirect(VERTEX_ARRAY.length * SIZE_OF_FLOAT);
-        bb.order(ByteOrder.nativeOrder());
-        this.vertexBuffer = bb.asFloatBuffer();
-        vertexBuffer.put(VERTEX_ARRAY);
-        vertexBuffer.position(0);
+    // Multi-threaded drawing support
+    private Lock lock = new ReentrantLock();
+    private Condition updateDone = lock.newCondition();
+    private RectF dirtyRect = new RectF();
+    private float prevX;
+    private float prevY;
+    private volatile long totalDrawingTime;
+    private volatile int drawCount;
+    private volatile long totalPathUpdateTime;
+    private volatile int pathUpdateCount;
+
+    /**
+     * Initialize renderer with GLSurfaceView.
+     *
+     * @param view Target view.
+     */
+    SkiaGLRenderer(final GLSurfaceView view) {
+        this.gestureDetector = new DrawGestureDetector(this);
+        this.view = view;
+        view.setEGLConfigChooser(8, 8, 8, 8, 0, 8);
+        view.setEGLContextClientVersion(2);
+        view.setRenderer(this);
+        view.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
+
+        this.view.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(final View v, final MotionEvent event) {
+                return SkiaGLRenderer.this.gestureDetector.onTouchEvent(event);
+            }
+        });
     }
+
+    private static native void init();
+
+    private static native void destroy();
+
+    private static native void setSize(final int width, final int height);
+
+    private static native void draw(final SkiaPath path, final float left, final float top, final float right, final float bottom);
 
     /**
      * Called when the surface is created or recreated.
@@ -57,8 +95,7 @@ class SkiaGLRenderer implements GLSurfaceView.Renderer {
      */
     @Override
     public void onSurfaceCreated(final GL10 gl, final EGLConfig config) {
-        gl.glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-        gl.glColor4f(1.0f, 0.0f, 0.0f, 0.0f);
+        init();
     }
 
     /**
@@ -87,7 +124,15 @@ class SkiaGLRenderer implements GLSurfaceView.Renderer {
      */
     @Override
     public void onSurfaceChanged(final GL10 gl, final int width, final int height) {
-        gl.glViewport(0, 0, width, height);
+        Matrix modelToView = new Matrix();
+        modelToView.setValues(new float[]{
+                1, 0, width / 2,
+                0, -1, height / 2,
+                0, 0, 1
+        });
+        modelToView.invert(this.viewToModel);
+        this.gestureDetector.setTransform(this.viewToModel);
+        setSize(width, height);
     }
 
     /**
@@ -108,10 +153,151 @@ class SkiaGLRenderer implements GLSurfaceView.Renderer {
      */
     @Override
     public void onDrawFrame(final GL10 gl) {
-        gl.glClear(GL10.GL_COLOR_BUFFER_BIT);
-        gl.glEnableClientState(GL10.GL_VERTEX_ARRAY);
-        gl.glVertexPointer(VERTEX_SIZE, GL10.GL_FLOAT, 0, vertexBuffer);
-        gl.glDrawArrays(GL10.GL_TRIANGLES, 0, VERTEX_SIZE);
-        gl.glDisableClientState(GL10.GL_VERTEX_ARRAY);
+        float left, top, right, bottom;
+        try {
+            lock.lock();
+            left = this.dirtyRect.left;
+            top = this.dirtyRect.top;
+            right = this.dirtyRect.right;
+            bottom = this.dirtyRect.bottom;
+            this.dirtyRect.setEmpty();
+        } finally {
+            lock.unlock();
+        }
+
+        if (this.path != null) {
+            long startTime = System.nanoTime();
+            draw(this.path, left, top, right, bottom);
+            this.totalDrawingTime += System.nanoTime() - startTime;
+            ++this.drawCount;
+        }
+
+        try {
+            lock.lock();
+            this.updateDone.signal();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private void requestRender() {
+        this.view.requestRender();
+    }
+
+    /**
+     * Start a new stroke.
+     *
+     * @param x X co-ordinate.
+     * @param y Y co-ordinate.
+     */
+    @Override
+    public boolean beginStroke(final float x, final float y) {
+        this.path = new SkiaPath();
+        this.prevX = x;
+        this.prevY = y;
+
+        long startTime = System.nanoTime();
+        this.path.moveTo(x, y);
+        this.totalPathUpdateTime = System.nanoTime() - startTime;
+        this.pathUpdateCount = 1;
+
+        this.drawCount = 0;
+        this.totalDrawingTime = 0;
+
+        return true;
+    }
+
+    /**
+     * Add a new new point to stroke.
+     *
+     * @param x X co-ordinate.
+     * @param y Y co-ordinate.
+     */
+    @Override
+    public boolean updateStroke(final float x, final float y) {
+        if (this.path != null) {
+            long startTime = System.nanoTime();
+            this.path.lineTo(x, y);
+            this.totalPathUpdateTime = System.nanoTime() - startTime;
+            ++this.pathUpdateCount;
+
+            try {
+                lock.lock();
+                if (this.dirtyRect.isEmpty()) {
+                    this.dirtyRect.set(this.prevX, this.prevY, x, y);
+                    this.dirtyRect.sort();
+                } else {
+                    this.dirtyRect.union(x, y);
+                }
+                this.dirtyRect.inset(-STROKE_WIDTH, -STROKE_WIDTH);
+                requestRender();
+            } finally {
+                lock.unlock();
+            }
+            this.prevX = x;
+            this.prevY = y;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Complete the stroke.
+     *
+     * @param x X co-ordinate.
+     * @param y Y co-ordinate.
+     */
+    @Override
+    public boolean endStroke(final float x, final float y) {
+        return updateStroke(x, y);
+    }
+
+    /**
+     * Wait for drawing to complete.
+     */
+    @Override
+    public void waitForUpdate() {
+        try {
+            lock.lock();
+            while (!this.dirtyRect.isEmpty()) {
+                updateDone.await();
+            }
+        } catch (InterruptedException e) {
+            Log.e(TAG, "Inturrupted waiting main thread.", e);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Compute drawing FPS.
+     *
+     * @return drawing FPS.
+     */
+    @SuppressWarnings("MagicNumber")
+    double getDrawingFPS() {
+        if (this.drawCount > 0) {
+            // Convert nanos to seconds.
+            return 1000.0 * 1000.0 * 1000.0 * this.drawCount / this.totalDrawingTime;
+        }
+        return 0;
+    }
+
+    /**
+     * Compute average (in nono-seconds) time taken to update path.
+     *
+     * @return Time in nano seconds.
+     */
+    public double getPathUpdateNanos() {
+        if (this.pathUpdateCount > 0) {
+            return this.totalPathUpdateTime / this.pathUpdateCount;
+        }
+        return 0;
+    }
+
+    @Override
+    protected void finalize() throws Throwable {
+        destroy();
+        super.finalize();
     }
 }

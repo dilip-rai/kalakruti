@@ -1,3 +1,4 @@
+import org.apache.tools.ant.taskdefs.condition.Os
 apply plugin: 'com.android.application'
 
 android {
@@ -11,6 +12,14 @@ android {
         versionCode 1
         versionName "1.0"
     }
+
+    sourceSets {
+        main {
+            jni.srcDirs = []
+            jniLibs.srcDir 'src/main/libs'
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
@@ -29,3 +38,44 @@ dependencies {
     compile 'com.android.support:appcompat-v7:23.1.1'
     compile 'com.android.support:design:23.1.1'
 }
+
+def getNdkCommand() {
+    def ndkCmd
+    def ndkDir
+    // First try local.properties file
+    if (file("${project.rootDir}/local.properties").exists()) {
+        Properties local = new Properties()
+        local.load(new FileInputStream("${project.rootDir}/local.properties"))
+        ndkDir = local.getProperty('ndk.dir')
+    }
+    // Then try Environment variable
+    if (ndkDir == null) {
+        ndkDir = System.getenv()['ANDROID_NDK_ROOT']
+    }
+
+    if (ndkDir != null) {
+        if (Os.isFamily(Os.FAMILY_WINDOWS)) {
+            ndkCmd = ndkDir + '\\ndk-build.cmd'
+        } else {
+            ndkCmd = ndkDir + '/ndk-build'
+        }
+    } else {
+        ndkCmd = 'ndk-build'
+    }
+    return ndkCmd
+}
+
+task ndkBuild(type: Exec) {
+    // Override NDK_DEBUG in local.properties file.
+    commandLine getNdkCommand(), '-C', file('src/main').absolutePath, 'NDK_DEBUG=1', '-j16'
+}
+
+task ndkBuildClean(type: Exec) {
+    commandLine getNdkCommand(), '-C', file('src/main').absolutePath, 'clean'
+}
+
+tasks.withType(JavaCompile) {
+    compileTask -> compileTask.dependsOn ndkBuild
+}
+clean.dependsOn 'ndkBuildClean'
+
