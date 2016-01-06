@@ -1,11 +1,14 @@
 //
 // Created by Dilip Kumar Rai on 02/01/16.
 //
+#include "SkiaPath.h"
+#include "SkiaGLRenderer_JNI.h"
 #include "GrContext.h"
 #include "SkCanvas.h"
 #include "SkSurface.h"
 #include "SkRect.h"
 #include "SkPathOps.h"
+#include <android/log.h>
 
 #define LOGD(fmt, ...) __android_log_print(ANDROID_LOG_DEBUG, "SkiaGLRenderer", fmt, __VA_ARGS__)
 
@@ -107,7 +110,6 @@ extern "C" JNIEXPORT void JNICALL Java_com_artwork_kalakruti_skiadraw_SkiaGLRend
     SkPath *path = getSkPath(env, skiapath);
     canvas->save();
     canvas->concat(gRendererImpl.GetModelToViewMatrix());
-    canvas->clipRect(rect);
     canvas->clear(SK_ColorWHITE);
     canvas->drawPath(*path, paint);
     canvas->restore();

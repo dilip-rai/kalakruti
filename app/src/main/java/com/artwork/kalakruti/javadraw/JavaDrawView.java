@@ -1,6 +1,7 @@
 package com.artwork.kalakruti.javadraw;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Matrix;
@@ -36,8 +37,10 @@ public class JavaDrawView extends SurfaceView implements DrawGestureHandler {
     private Condition updateDone = lock.newCondition();
     private volatile boolean continueDrawing;
     private RectF dirtyRect = new RectF();
-    private Picture picture = new Picture();
+    private volatile Picture picture = new Picture();
     private volatile Path currentPath;
+    private volatile Bitmap offscreenBitmap;
+    private volatile Canvas offscreenCanvas;
     private Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private float prevX, prevY;
     private Matrix modelToView = new Matrix();
@@ -193,12 +196,15 @@ public class JavaDrawView extends SurfaceView implements DrawGestureHandler {
     public boolean endStroke(final float x, final float y) {
         if (this.currentPath != null) {
             updateStroke(x, y);
-            Canvas canvas = picture.beginRecording(this.getWidth(), this.getHeight());
+            Picture pic = new Picture();
+            Canvas canvas = pic.beginRecording(this.getWidth(), this.getHeight());
+            this.picture.draw(canvas);
             int restorePoint = canvas.save();
             canvas.concat(this.modelToView);
             canvas.drawPath(this.currentPath, this.paint);
             canvas.restoreToCount(restorePoint);
-            picture.endRecording();
+            pic.endRecording();
+            this.picture = pic;
             this.currentPath = null;
             return true;
         }
@@ -258,6 +264,16 @@ public class JavaDrawView extends SurfaceView implements DrawGestureHandler {
         });
         this.modelToView.invert(this.viewToModel);
         this.gestureDetector.setTransform(this.viewToModel);
+
+        try {
+            lock.lock();
+            this.offscreenBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            this.offscreenCanvas = new Canvas(this.offscreenBitmap);
+            needsUpdate.signal();
+        } finally {
+            lock.unlock();
+        }
+
     }
 
     private void init() {
@@ -268,6 +284,17 @@ public class JavaDrawView extends SurfaceView implements DrawGestureHandler {
     }
 
     private void runDrawThread() {
+        try {
+            lock.lock();
+            while (this.continueDrawing && this.offscreenCanvas == null) {
+                this.needsUpdate.await();
+            }
+        } catch (InterruptedException e) {
+            Log.d(TAG, "Draw thread inturrupted.", e);
+        } finally {
+            lock.unlock();
+        }
+
         RectF drawRectF = new RectF();
         Rect drawRect = new Rect();
         SurfaceHolder holder = getHolder();
@@ -289,16 +316,23 @@ public class JavaDrawView extends SurfaceView implements DrawGestureHandler {
             long startTime = System.nanoTime();
             drawRect.set(Math.round(drawRectF.left), Math.round(drawRectF.top),
                     Math.round(drawRectF.right), Math.round(drawRectF.bottom));
-            Canvas canvas = holder.lockCanvas(drawRect);
+
+            // Draw off screen first
+            this.offscreenCanvas.save();
+            this.offscreenCanvas.drawColor(Color.WHITE);
+            this.picture.draw(this.offscreenCanvas);
+            this.offscreenCanvas.save();
+            this.offscreenCanvas.concat(this.modelToView);
+            if (this.currentPath != null) {
+                this.offscreenCanvas.drawPath(this.currentPath, this.paint);
+            }
+            this.offscreenCanvas.restore();
+
+            // Transfer to screen.
+            //Canvas canvas = holder.lockCanvas(drawRect);
+            Canvas canvas = holder.lockCanvas();
             if (canvas != null) {
-                int savePoint = canvas.save();
-                canvas.drawColor(Color.WHITE);
-                this.picture.draw(canvas);
-                canvas.concat(this.modelToView);
-                if (this.currentPath != null) {
-                    canvas.drawPath(this.currentPath, this.paint);
-                }
-                canvas.restoreToCount(savePoint);
+                canvas.drawBitmap(this.offscreenBitmap, 0, 0, null);
                 holder.unlockCanvasAndPost(canvas);
             }
             this.totalDrawingTime += System.nanoTime() - startTime;

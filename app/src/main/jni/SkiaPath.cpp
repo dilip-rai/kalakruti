@@ -1,8 +1,11 @@
 //
 // Created by Dilip Kumar Rai on 03/01/16.
 //
-#include "SkPath.h"
+#include "SkiaPath.h"
+#include "SkiaPath_JNI.h"
 #include "SkPathOps.h"
+#include <android/log.h>
+
 
 #define LOGD(fmt, ...) __android_log_print(ANDROID_LOG_DEBUG, "SkiaGLRenderer", fmt, __VA_ARGS__)
 
